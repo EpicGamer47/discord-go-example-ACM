@@ -12,43 +12,6 @@ import (
 	"github.com/lus/dgc"
 )
 
-// slash command registration
-var commands = []*discordgo.ApplicationCommand{
-	{
-		Name:        "ping",
-		Description: "Responds with Pong!",
-	},
-}
-
-var slashCommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-	"ping": slashPingHandler,
-}
-
-// slash command callbacks
-func slashPingHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "Pong!",
-		},
-	})
-}
-
-// text command registration
-func registerCommands(router *dgc.Router) {
-	router.RegisterCmd(&dgc.Command{
-		Name:        "ping",
-		Description: "Responds with pong",
-		Handler:     pingHandler,
-		IgnoreCase:  true,
-	})
-}
-
-// text callbacks
-func pingHandler(ctx *dgc.Ctx) {
-	ctx.RespondText("Pong!")
-}
-
 // main
 func main() {
 	// loading variables & init errors
@@ -82,23 +45,35 @@ func main() {
 		Prefixes: []string{"!"},
 	})
 
-	registerCommands(router)
-
-	dg.AddHandler(router.Handler())
+	// Use exported setup function from command_logic.go
+	SetupPrefixCommands(router)
 
 	dg.Identify.Intents = (discordgo.IntentsGuilds |
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsMessageContent)
 
+	dg.AddHandler(router.Handler())
+
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if i.Type == discordgo.InteractionApplicationCommand {
-			if handler, ok := slashCommandHandlers[i.ApplicationCommandData().Name]; ok {
+		switch i.Type {
+		// slash commands
+		case discordgo.InteractionApplicationCommand:
+			if handler, ok := SlashCommandHandlers[i.ApplicationCommandData().Name]; ok {
 				handler(s, i)
+			}
+
+		// button clicks
+		case discordgo.InteractionMessageComponent:
+			if handler, ok := ComponentHandlers[i.MessageComponentData().CustomID]; ok {
+				handler(s, i)
+			} else {
+				log.Printf("Missing handler for button: %s", i.MessageComponentData().CustomID)
 			}
 		}
 	})
 
-	registeredCommands := make(map[string]string, len(commands))
+	// Use exported slice length from command_logic.go
+	registeredCommands := make(map[string]string, len(SlashCommands))
 
 	err = dg.Open()
 	if err != nil {
@@ -109,7 +84,8 @@ func main() {
 	log.Println("Bot is now running. Registering slash commands...")
 
 	// register slash commands
-	for _, v := range commands {
+	// Iterate over exported slice from command_logic.go
+	for _, v := range SlashCommands {
 		cmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, guildID, v)
 		if err != nil {
 			log.Fatalf("Cannot create command %s: %v", v.Name, err)
